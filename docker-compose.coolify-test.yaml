@@ -1,0 +1,139 @@
+# Test deployment for Coolify that BUILDS the app from this repo's Dockerfile
+# (instead of pulling ghcr.io/fazer-ai/chatwoot:latest), so the Instagram
+# comments feature on this branch is what actually runs.
+#
+# Use this file only for an isolated TEST instance (separate domain + DB).
+# Set INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET / INSTAGRAM_VERIFY_TOKEN in Coolify.
+version: '3'
+
+services:
+  rails:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: chatwoot-fork-test:latest
+    volumes:
+      - 'storage:/app/storage'
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - NODE_ENV=production
+      - RAILS_ENV=production
+      - INSTALLATION_ENV=docker
+      - DEFAULT_LOCALE=pt_BR
+      - FRONTEND_URL=${SERVICE_URL_RAILS}
+      - INTERNAL_HOST_URL=http://rails:3000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USERNAME=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DATABASE=${POSTGRES_DB:-chatwoot_production}
+      - SECRET_KEY_BASE=${SERVICE_PASSWORD_64_SECRETKEYBASE}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}
+      # ---- Instagram Login (channel + comments feature) ----
+      - INSTAGRAM_APP_ID=${INSTAGRAM_APP_ID}
+      - INSTAGRAM_APP_SECRET=${INSTAGRAM_APP_SECRET}
+      - INSTAGRAM_VERIFY_TOKEN=${INSTAGRAM_VERIFY_TOKEN}
+      - INSTAGRAM_API_VERSION=${INSTAGRAM_API_VERSION:-v22.0}
+    entrypoint: docker/entrypoints/rails.sh
+    command:
+      - bundle
+      - exec
+      - rails
+      - s
+      - '-p'
+      - '3000'
+      - '-b'
+      - 0.0.0.0
+    restart: always
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'wget -qO- --header="Accept: text/html" http://127.0.0.1:3000/'
+      interval: 60s
+      timeout: 20s
+      retries: 10
+
+  sidekiq:
+    image: chatwoot-fork-test:latest
+    pull_policy: never
+    volumes:
+      - 'storage:/app/storage'
+    depends_on:
+      rails:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      - RAILS_ENV=production
+      - INSTALLATION_ENV=docker
+      - DEFAULT_LOCALE=pt_BR
+      - FRONTEND_URL=${SERVICE_URL_RAILS}
+      - INTERNAL_HOST_URL=http://rails:3000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USERNAME=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DATABASE=${POSTGRES_DB:-chatwoot_production}
+      - SECRET_KEY_BASE=${SERVICE_PASSWORD_64_SECRETKEYBASE}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}
+      - INSTAGRAM_APP_ID=${INSTAGRAM_APP_ID}
+      - INSTAGRAM_APP_SECRET=${INSTAGRAM_APP_SECRET}
+      - INSTAGRAM_VERIFY_TOKEN=${INSTAGRAM_VERIFY_TOKEN}
+      - INSTAGRAM_API_VERSION=${INSTAGRAM_API_VERSION:-v22.0}
+    command:
+      - bundle
+      - exec
+      - sidekiq
+      - '-C'
+      - config/sidekiq.yml
+    restart: always
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'ps aux | grep [s]idekiq'
+      interval: 20s
+      timeout: 20s
+      retries: 10
+
+  postgres:
+    image: 'pgvector/pgvector:pg16'
+    restart: always
+    volumes:
+      - 'postgres:/var/lib/postgresql/data'
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-chatwoot_production}
+      - POSTGRES_USER=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -h localhost -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}'
+      interval: 20s
+      timeout: 20s
+      retries: 10
+
+  redis:
+    image: 'redis:alpine'
+    restart: always
+    command:
+      - sh
+      - '-c'
+      - 'redis-server --requirepass "${SERVICE_PASSWORD_REDIS}"'
+    volumes:
+      - 'redis:/data'
+    environment:
+      - REDIS_PASSWORD=${SERVICE_PASSWORD_REDIS}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'redis-cli -h localhost -p 6379 -a $${REDIS_PASSWORD} ping'
+      interval: 20s
+      timeout: 20s
+      retries: 10
