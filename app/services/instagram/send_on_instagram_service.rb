@@ -1,6 +1,52 @@
 class Instagram::SendOnInstagramService < Instagram::BaseSendService
   private
 
+  # Instagram comment conversations reply publicly via the Comments API,
+  # while DMs continue through the parent (messaging) flow.
+  def perform_reply
+    return send_comment_reply if instagram_comment_conversation?
+
+    super
+  end
+
+  def instagram_comment_conversation?
+    message.conversation.additional_attributes['type'] == 'instagram_comment'
+  end
+
+  def send_comment_reply
+    return if message.content.blank?
+
+    comment_id = reply_target_comment_id
+    return if comment_id.blank?
+
+    response = HTTParty.post(
+      "https://graph.instagram.com/v22.0/#{comment_id}/replies",
+      query: { access_token: channel.access_token },
+      body: { message: message.outgoing_content }
+    )
+    process_comment_response(response)
+  end
+
+  # Reply to the most recent incoming comment in the conversation.
+  def reply_target_comment_id
+    message.conversation.messages.incoming
+           .where("content_attributes ->> 'type' = ?", 'instagram_comment')
+           .order(created_at: :desc)
+           .limit(1)
+           .pick(Arel.sql("content_attributes ->> 'instagram_comment_id'"))
+  end
+
+  def process_comment_response(response)
+    parsed = response.parsed_response
+    if response.success? && parsed['error'].blank?
+      message.update!(source_id: parsed['id'])
+    else
+      error = external_error(parsed)
+      Rails.logger.error("Instagram comment reply error: #{error} : message ##{message.id}")
+      Messages::StatusUpdateService.new(message, 'failed', error).perform
+    end
+  end
+
   def channel_class
     Channel::Instagram
   end

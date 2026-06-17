@@ -40,12 +40,32 @@ class Webhooks::InstagramEventsJob < MutexApplicationJob
   private
 
   def process_single_entry(entry)
+    return process_comments(entry) if instagram_comment_event?(entry)
+
     if test_event?(entry)
       process_test_event(entry)
       return
     end
 
     process_messages(entry)
+  end
+
+  # Real comment webhooks arrive as `changes` with field `comments`.
+  # The test-event path also uses `changes` (field `messages`), so we route by field.
+  def instagram_comment_event?(entry)
+    Array(entry[:changes]).any? { |change| change[:field] == 'comments' }
+  end
+
+  def process_comments(entry)
+    channel = Channel::Instagram.find_by(instagram_id: entry[:id])
+    return if channel.blank?
+
+    Array(entry[:changes]).each do |change|
+      next unless change[:field] == 'comments'
+
+      Rails.logger.info("Instagram Events Job Comment: #{change[:value]}")
+      ::Instagram::CommentText.new(change[:value], channel).perform
+    end
   end
 
   def process_messages(entry)
