@@ -31,13 +31,14 @@ class Messages::Instagram::CommentBuilder
 
   # Group all comments from the same media + contact into a single conversation,
   # keeping comment threads separate from direct-message conversations.
+  # additional_attributes is a `json` column, so we match in Ruby instead of
+  # relying on the Postgres `->>` operator (unreliable here).
   def find_open_conversation
     @inbox.conversations
           .where(contact_id: contact.id)
           .where.not(status: :resolved)
-          .where("additional_attributes ->> 'instagram_media_id' = ?", media_id)
           .order(created_at: :desc)
-          .first
+          .find { |conv| conv.additional_attributes['instagram_media_id'] == media_id }
   end
 
   def build_conversation

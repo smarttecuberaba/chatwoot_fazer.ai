@@ -69,9 +69,7 @@ class Messages::Instagram::BaseMessageBuilder < Messages::Messenger::MessageBuil
   end
 
   def find_conversation_scope
-    # Exclude Instagram comment conversations so direct messages never attach to a comment thread.
     Conversation.where(conversation_params)
-                .where("additional_attributes ->> 'type' IS DISTINCT FROM 'instagram_comment'")
   end
 
   def find_or_build_for_multiple_conversations

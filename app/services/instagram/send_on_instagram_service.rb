@@ -28,12 +28,13 @@ class Instagram::SendOnInstagramService < Instagram::BaseSendService
   end
 
   # Reply to the most recent incoming comment in the conversation.
+  # content_attributes is a `json` column, so Postgres `->>` is unreliable;
+  # read the attributes in Ruby instead (works for both json and jsonb).
   def reply_target_comment_id
-    message.conversation.messages.incoming
-           .where("content_attributes ->> 'type' = ?", 'instagram_comment')
-           .order(created_at: :desc)
-           .limit(1)
-           .pick(Arel.sql("content_attributes ->> 'instagram_comment_id'"))
+    comment = message.conversation.messages.incoming
+                     .order(created_at: :desc)
+                     .find { |msg| msg.content_attributes['type'] == 'instagram_comment' }
+    comment&.content_attributes&.dig('instagram_comment_id')
   end
 
   def process_comment_response(response)
