@@ -1,6 +1,6 @@
-# Test deployment for Coolify that BUILDS the app from this repo's Dockerfile
-# (instead of pulling ghcr.io/fazer-ai/chatwoot:latest), so the Instagram
-# comments feature on this branch is what actually runs.
+# Test deployment for Coolify that PULLS the pre-built image from the fork's
+# GitHub Container Registry (built by the publish_github_docker workflow),
+# instead of building on the VPS.
 #
 # Use this file only for an isolated TEST instance (separate domain + DB).
 # Set INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET / INSTAGRAM_VERIFY_TOKEN in Coolify.
@@ -8,10 +8,8 @@ version: '3'
 
 services:
   rails:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: chatwoot-fork-test:latest
+    image: 'ghcr.io/smarttecuberaba/chatwoot_fazer.ai:latest'
+    pull_policy: always
     volumes:
       - 'storage:/app/storage'
     depends_on:
@@ -57,8 +55,8 @@ services:
       retries: 10
 
   sidekiq:
-    image: chatwoot-fork-test:latest
-    pull_policy: never
+    image: 'ghcr.io/smarttecuberaba/chatwoot_fazer.ai:latest'
+    pull_policy: always
     volumes:
       - 'storage:/app/storage'
     depends_on:
